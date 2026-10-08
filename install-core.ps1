@@ -1,4 +1,4 @@
-# install-core.ps1 — 破甲插件安装核心（通用版 · 适配任意电脑 / 任意用户名）
+﻿# install-core.ps1 — 破甲插件安装核心（通用版 · 适配任意电脑 / 任意用户名）
 #
 # 通常由 install.ps1 在线引导器下载后调用，一般不单独使用。
 # 手动用法：把本脚本和 pojia.zip 放同一文件夹，然后执行：
@@ -114,6 +114,7 @@ $appDir = Split-Path (Split-Path (Split-Path (Split-Path $Tpl) -Parent) -Parent)
 # $Tpl = <APP>\resources\app.asar.unpacked\resources\templates
 # 去掉四级 -> <APP>
 $baseFwd = $base -replace '\\','/'
+$userFwd = $user -replace '\\','/'
 $newName = Split-Path $user -Leaf
 $desk = [Environment]::GetFolderPath('Desktop')
 
@@ -128,7 +129,7 @@ function Adapt-Text([string]$c) {
     if ($desk) { $c = $c.Replace((Esc "D:\桌面"), (Esc $desk)) }
     # 2) 正斜杠形态
     $c = $c.Replace("C:/Users/吴睿/.workbuddy", $baseFwd)
-    $c = $c.Replace("C:/Users/吴睿", $base)
+    $c = $c.Replace("C:/Users/吴睿", $userFwd)
     # 3) 单反斜杠形态（长路径优先）
     $c = $c.Replace("C:\Users\吴睿\WorkBuddy",  (Join-Path $user "WorkBuddy"))
     $c = $c.Replace("C:\Users\吴睿\.codebuddy", (Join-Path $user ".codebuddy"))
@@ -138,8 +139,8 @@ function Adapt-Text([string]$c) {
     # 4) 兜底：残留人名（路径已处理完，剩下的都是称呼/主人名）
     if ($newName -and $newName -ne "吴睿") { $c = $c.Replace("吴睿", $newName) }
     # 5) 占位符形态（新发布包已去本机路径；防御性替换）
-    $c = $c.Replace("__USERPROFILE_FWD__", $baseFwd)
-    $c = $c.Replace("__USERPROFILE_DBL__", (Esc $base))
+    $c = $c.Replace("__USERPROFILE_FWD__", $userFwd)
+    $c = $c.Replace("__USERPROFILE_DBL__", (Esc $user))
     $c = $c.Replace("__USERPROFILE__", $user)
     $c = $c.Replace("__APP_DIR_DBL__", (Esc $appDir))
     $c = $c.Replace("__APP_DIR__", $appDir)
