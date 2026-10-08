@@ -19,6 +19,10 @@ $BRAND = "https://pojia-install.app.workbuddy.host"
 $PKG_SHA256 = "25332BF8BFEE3FA8A81E6FA758F144A1AA559055775D9EA921B740C8CAC2A93D"
 $PKG_MIN    = 300000
 
+# 安装核心指纹：core 同样按指纹取，陈旧/被篡改的镜像直接跳过
+$CORE_SHA256 = "E5DE9752B2E56A89E2ED04EA98FD7D0EDBA1422645357CF10B685FAAD1A7839E"
+$CORE_MIN    = 10000
+
 $MIRRORS = @(
     $BRAND,
     "https://cdn.jsdelivr.net/gh/kakacry/pojia-installer@main",
@@ -57,22 +61,34 @@ New-Item -ItemType Directory -Path $Work -Force | Out-Null
 $core = Join-Path $Work "install-core.ps1"
 $zip  = Join-Path $Work "pojia.zip"
 
-# ---------- 1/3 拉安装核心 ----------
+# ---------- 1/3 拉安装核心（按指纹） ----------
 Say "[1/3] fetching install core" "Cyan"
 $coreOk = $false
+$coreFall = $null
+$coreFallSz = 0
 foreach ($m in $MIRRORS) {
     $sz = Try-Fetch "$m/install-core.ps1" $core
-    if ($sz -gt 5000) {
-        Say ("      install-core.ps1  " + $sz + " B   ($m)") "Green"
-        $coreOk = $true
-        break
+    if ($sz -gt $CORE_MIN) {
+        if ((Get-Sha256 $core) -eq $CORE_SHA256) {
+            Say ("      install-core.ps1  " + $sz + " B   (verified via $m)") "Green"
+            $coreOk = $true
+            break
+        }
+        Say ("      !   " + $m + "  stale " + $sz + " B, next") "Yellow"
+        if ($sz -gt $coreFallSz) { $coreFallSz = $sz; $coreFall = $m }
+    } else {
+        Say "      --  $m" "DarkGray"
     }
-    Say "      --  $m" "DarkGray"
 }
 if (-not $coreOk) {
-    Say ""
-    Say "  All mirrors unreachable." "Red"
-    exit 1
+    if ($coreFallSz -ge $CORE_MIN) {
+        Say ("      !   no mirror served the verified core; using $coreFall ($coreFallSz B)") "Yellow"
+        $coreOk = $true
+    } else {
+        Say ""
+        Say "  All mirrors unreachable." "Red"
+        exit 1
+    }
 }
 
 # ---------- 2/3 取插件包（按指纹） ----------
