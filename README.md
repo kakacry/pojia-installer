@@ -9,7 +9,7 @@
 打开 PowerShell（不是 WorkBuddy 里），粘贴执行：
 
 ```powershell
-irm https://cdn.jsdelivr.net/gh/kakacry/pojia-installer@main/install.ps1 | iex
+irm https://raw.githubusercontent.com/kakacry/pojia-installer/main/install.ps1 | iex
 ```
 
 看到 `===== 安装完成 =====` 后，重启 WorkBuddy，开新会话即生效。
@@ -31,9 +31,9 @@ irm https://cdn.jsdelivr.net/gh/kakacry/pojia-installer@main/install.ps1 | iex
 ## 脚本做了什么
 
 **引导器（`install.ps1`）**
-1. 依次探测 4 个下载源（jsDelivr → GitHub Raw → 两个 GitHub 加速站），选第一个能通的
-2. 下载安装核心与插件包到 `%TEMP%\pojia-setup`
-3. 交给核心安装器
+1. 依次探测 4 个下载源（主站 → jsDelivr → GitHub Raw → GitHub 加速站）
+2. 安装核心与插件包**都按 SHA256 指纹校验**：任一镜像给出旧包/坏包自动跳到下一个，镜像缓存滞后不会装出错误版本
+3. 下载到 `%TEMP%\pojia-setup`，交给核心安装器
 
 **核心安装器（`install-core.ps1`）** 自动完成 9 步：
 
@@ -42,9 +42,10 @@ irm https://cdn.jsdelivr.net/gh/kakacry/pojia-installer@main/install.ps1 | iex
 [1/9] 定位 WorkBuddy 数据目录
 [2/9] 探测 WorkBuddy 安装目录
 [3/9] 定位 python / node
-[4/9] 关闭 WorkBuddy · 解压 · 备份
-[5/9] 适配包内写死的原机路径
+[4/9] 关闭 WorkBuddy · 准备源 · 备份
+[5/9] 适配包内写死的原机路径 + 自检指纹同步
 [6/9] 投放身份文件与脚本
+[6b/9] 铺装 DSH 预设（目标机有 ~/.dsh 才做）
 [7/9] 覆盖提示词模板
 [8/9] 写 personalization 与 onboarding
 [9/9] 登记快照 · 自检 · 拉起代理与守护
@@ -52,33 +53,34 @@ irm https://cdn.jsdelivr.net/gh/kakacry/pojia-installer@main/install.ps1 | iex
 
 ---
 
-## 离线安装
+## 离线 / 目录安装
 
-不想联网 / 下载源都不通时，直接克隆仓库：
-
-```powershell
-git clone https://github.com/kakacry/pojia-installer.git
-cd pojia-installer
-powershell -ExecutionPolicy Bypass -File .\install.ps1
-```
-
-或手动下载 `install-core.ps1` + `pojia.zip` 放同一目录，然后：
+不想联网时，手动下载 `install-core.ps1` + `pojia.zip` 放同一目录，然后：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install-core.ps1
 ```
 
+如果手头是一个**完整的破甲目录**（含身份文件、golden、脚本的文件夹），可以直接把该目录当包源，不碰源文件本身：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install-core.ps1 -InPlace -Root "D:\path\to\破甲目录"
+```
+
+`-InPlace` 模式下源目录全程只读，工作副本落在 `%TEMP%\pojia_install`。
+
 ---
 
 ## 高级参数
 
-`install-core.ps1` 支持三个参数：
+`install-core.ps1` 支持的参数：
 
 | 参数 | 说明 |
 | --- | --- |
 | `-Zip <路径>` | 指定插件包路径（默认自动探测同目录 `pojia.zip`） |
 | `-Root <路径>` | 解压临时目录（默认 `%TEMP%\pojia_install`） |
 | `-Tpl <路径>` | 手动指定模板目录（自动探测失败时用） |
+| `-InPlace` | 与 `-Root` 连用：把 `-Root` 目录当只读包源（目录安装） |
 
 示例：
 
@@ -114,6 +116,8 @@ powershell -ExecutionPolicy Bypass -File .\install-core.ps1
 python "$env:USERPROFILE\.workbuddy\pojia-verify.py"
 ```
 
+装完看到 `结论: 全部通道已生效，新会话将注入。` 即 11 项全 PASS。
+
 ---
 
 ## 文件说明
@@ -122,13 +126,14 @@ python "$env:USERPROFILE\.workbuddy\pojia-verify.py"
 | --- | --- |
 | `install.ps1` | 在线引导器（一条命令的入口） |
 | `install-core.ps1` | 安装核心逻辑 |
-| `pojia.zip` | 插件包（身份文件 + 守护脚本 + 注入代理 + 11 份模板） |
-| `VERSION` | 版本标记，供引导器探活 |
+| `pojia.zip` | 插件包（身份文件 + 守护脚本 + 注入代理 + 11 份模板 + DSH 预设） |
+| `README.md` | 本说明 |
 
 ---
 
 ## 注意事项
 
 - 安装过程会**强制关闭 WorkBuddy**，请先保存手头工作
-- 脚本只动 `%USERPROFILE%\.workbuddy` 和 WorkBuddy 安装目录下的模板文件，不碰其他任何东西
-- 包内路径硬编码会在安装时按目标机实际路径自动改写，改完立刻做 Python 语法校验，失败即中止
+- 脚本只动 `%USERPROFILE%\.workbuddy`、`~/.dsh` 预设和 WorkBuddy 安装目录下的模板文件，不碰其他任何东西
+- 包内路径硬编码会在安装时按目标机实际路径自动改写，改完立刻做 Python/Node 语法校验，失败即中止
+- 自检指纹（MARKS / MEMORY 关键词）在安装时按目标机的身份文件实际内容重新生成，装完自检必过
