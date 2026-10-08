@@ -1,4 +1,4 @@
-﻿# install-core.ps1 — 破甲插件安装核心（通用版 · 适配任意电脑 / 任意用户名）
+# install-core.ps1 — 破甲插件安装核心（通用版 · 适配任意电脑 / 任意用户名）
 #
 # 通常由 install.ps1 在线引导器下载后调用，一般不单独使用。
 # 手动用法：把本脚本和 pojia.zip 放同一文件夹，然后执行：
@@ -106,81 +106,97 @@ Ok "备份 -> $bak"
 
 # ============ 5. 路径适配（关键） ============
 Step "5/9" "适配包内写死的原机路径"
-# 包内仅有 pojiaguard.py 写死了路径：
-#   APP / RULES_DIRS / SCOPE_MASTER / SESSION_ROOT
-# pojiaguard.py 用的是 r"C:\Users\吴睿\..." 形态，需精确替换。
+# 发布包内可能残留 <原机路径> 或 <占位符> 两种形态，这里全部换算成
+# 目标机的真实路径与用户名。覆盖所有会被投放的文件：
+#   根身份文件 / 脚本 / .pojia-inject.txt / prompt-inject.md /
+#   .pojia-golden 全部 / coldcoffee-* 预设
 $appDir = Split-Path (Split-Path (Split-Path (Split-Path $Tpl) -Parent) -Parent) -Parent
 # $Tpl = <APP>\resources\app.asar.unpacked\resources\templates
 # 去掉四级 -> <APP>
 $baseFwd = $base -replace '\\','/'
+$newName = Split-Path $user -Leaf
+$desk = [Environment]::GetFolderPath('Desktop')
 
-$g = Join-Path $Root "pojiaguard.py"
-if (Test-Path $g) {
-    $c = Get-Content $g -Raw -Encoding UTF8
+function Esc([string]$p) { return $p.Replace('\', '\\') }   # 单 -> 双反斜杠
 
-    # 用 .NET String.Replace 做纯字面量替换（非正则），彻底避免反斜杠转义问题。
-    # 包内路径有两种写法：raw 字符串（单反斜杠）与普通字符串（双反斜杠），
-    # 两者分别替换，替换值也按对应形态生成，互不污染。
-    function RepLiteral([string]$text, [string]$from, [string]$to) {
-        if ([string]::IsNullOrEmpty($from)) { return $text }
-        return $text.Replace($from, $to)
-    }
-    function Esc([string]$p) { return $p.Replace('\', '\\') }   # 单 -> 双反斜杠
-
-    # 目标形态
-    $appS = $appDir;          $appD = Esc $appDir
-    $usrS = $user;            $usrD = Esc $user
-    $wsS  = Join-Path $user "WorkBuddy";   $wsD = Esc $wsS
-    $cbS  = Join-Path $user ".codebuddy";  $cbD = Esc $cbS
-
-    # 1) 安装根
-    $c = RepLiteral $c (Esc "C:\buyywork\WorkBuddy") $appD
-    $c = RepLiteral $c "C:\buyywork\WorkBuddy"       $appS
-    # 2) 用户下的两个目录（先长后短，避免前缀吞并）
-    $c = RepLiteral $c (Esc "C:\Users\吴睿\WorkBuddy")  $wsD
-    $c = RepLiteral $c "C:\Users\吴睿\WorkBuddy"        $wsS
-    $c = RepLiteral $c (Esc "C:\Users\吴睿\.codebuddy") $cbD
-    $c = RepLiteral $c "C:\Users\吴睿\.codebuddy"       $cbS
-    # 3) 兜底：任何残留的用户根（两种写法）
-    $c = RepLiteral $c (Esc "C:\Users\吴睿") $usrD
-    $c = RepLiteral $c "C:\Users\吴睿"       $usrS
-
-    # 4) 模板正文里写死的主人姓名 -> 当前用户名
-    $newName = Split-Path $user -Leaf
+function Adapt-Text([string]$c) {
+    # 1) 双反斜杠形态（Python 转义字符串 / JSON）
+    $c = $c.Replace((Esc "C:\Users\吴睿\WorkBuddy"),  (Esc (Join-Path $user "WorkBuddy")))
+    $c = $c.Replace((Esc "C:\Users\吴睿\.codebuddy"), (Esc (Join-Path $user ".codebuddy")))
+    $c = $c.Replace((Esc "C:\Users\吴睿"), (Esc $user))
+    $c = $c.Replace((Esc "C:\buyywork\WorkBuddy"), (Esc $appDir))
+    if ($desk) { $c = $c.Replace((Esc "D:\桌面"), (Esc $desk)) }
+    # 2) 正斜杠形态
+    $c = $c.Replace("C:/Users/吴睿/.workbuddy", $baseFwd)
+    $c = $c.Replace("C:/Users/吴睿", $base)
+    # 3) 单反斜杠形态（长路径优先）
+    $c = $c.Replace("C:\Users\吴睿\WorkBuddy",  (Join-Path $user "WorkBuddy"))
+    $c = $c.Replace("C:\Users\吴睿\.codebuddy", (Join-Path $user ".codebuddy"))
+    $c = $c.Replace("C:\Users\吴睿", $user)
+    $c = $c.Replace("C:\buyywork\WorkBuddy", $appDir)
+    if ($desk) { $c = $c.Replace("D:\桌面", $desk) }
+    # 4) 兜底：残留人名（路径已处理完，剩下的都是称呼/主人名）
     if ($newName -and $newName -ne "吴睿") { $c = $c.Replace("吴睿", $newName) }
-
-    # 5) 环境描述里的桌面路径 -> 目标机真实桌面（两种写法）
-    $desk = [Environment]::GetFolderPath('Desktop')
+    # 5) 占位符形态（新发布包已去本机路径；防御性替换）
+    $c = $c.Replace("__USERPROFILE_FWD__", $baseFwd)
+    $c = $c.Replace("__USERPROFILE_DBL__", (Esc $base))
+    $c = $c.Replace("__USERPROFILE__", $user)
+    $c = $c.Replace("__APP_DIR_DBL__", (Esc $appDir))
+    $c = $c.Replace("__APP_DIR__", $appDir)
     if ($desk) {
-        $deskS = $desk; $deskD = Esc $desk
-        $c = RepLiteral $c (Esc "D:\桌面") $deskD
-        $c = RepLiteral $c "D:\桌面"       $deskS
+        $c = $c.Replace("__DESKTOP_DIR_DBL__", (Esc $desk))
+        $c = $c.Replace("__DESKTOP_DIR__", $desk)
     }
+    if ($newName) { $c = $c.Replace("__USERNAME__", $newName) }
+    return $c
+}
 
-    [System.IO.File]::WriteAllText($g, $c, (New-Object System.Text.UTF8Encoding $false))
-    Ok "适配 pojiaguard.py"
-
-    # 语法校验（改坏立刻中止）
-    $chk = & $py -c "import ast,sys; ast.parse(open(sys.argv[1],encoding='utf-8').read()); print('SYNTAX_OK')" $g 2>&1
-    if ($chk -notmatch 'SYNTAX_OK') {
-        Write-Host "pojiaguard.py 语法校验失败，已中止：`n$chk" -ForegroundColor Red
-        exit 1
+# 适配对象：根目录投放文件 + golden 全部文本 + coldcoffee 预设
+$adaptFiles = @()
+$adaptFiles += Get-ChildItem "$Root" -Force -File -ErrorAction SilentlyContinue | Where-Object {
+    $_.Extension -in @(".md", ".py", ".ps1", ".mjs", ".txt", ".json", ".yml", ".yaml")
+}
+$adaptFiles += Get-ChildItem "$Root\.pojia-golden" -Recurse -File -ErrorAction SilentlyContinue | Where-Object {
+    $_.Extension -in @(".md", ".tpl", ".json", ".txt", ".sha256")
+}
+$adaptFiles += Get-ChildItem "$Root" -Directory -Filter "coldcoffee-*" -ErrorAction SilentlyContinue | ForEach-Object {
+    Get-ChildItem $_.FullName -Recurse -File -ErrorAction SilentlyContinue | Where-Object {
+        $_.Extension -in @(".md", ".yml", ".yaml", ".json", ".txt")
     }
-    Ok "pojiaguard.py 语法校验通过"
-} else {
+}
+$adapted = 0
+foreach ($f in ($adaptFiles | Sort-Object FullName -Unique)) {
+    $c = Get-Content $f.FullName -Raw -Encoding UTF8
+    $c2 = Adapt-Text $c
+    if ($c2 -ne $c) {
+        [System.IO.File]::WriteAllText($f.FullName, $c2, (New-Object System.Text.UTF8Encoding $false))
+        $adapted++
+    }
+}
+Ok "全量路径/人名适配 $adapted 个文件"
+
+# pojiaguard.py 语法校验（改坏立刻中止）
+$g = Join-Path $Root "pojiaguard.py"
+if (-not (Test-Path $g)) {
     Write-Host "包内缺少 pojiaguard.py，安装无法继续。" -ForegroundColor Red
     exit 1
 }
+$chk = & $py -c "import ast,sys; ast.parse(open(sys.argv[1],encoding='utf-8').read()); print('SYNTAX_OK')" $g 2>&1
+if ($chk -notmatch 'SYNTAX_OK') {
+    Write-Host "pojiaguard.py 语法校验失败，已中止：`n$chk" -ForegroundColor Red
+    exit 1
+}
+Ok "pojiaguard.py 语法校验通过"
 
-# 若包外随附了注入代理（pojia-proxy.mjs），同样做路径适配
+# pojia-proxy.mjs 语法校验（node 存在时才做）
 $mjs = Join-Path $Root "pojia-proxy.mjs"
-if (Test-Path $mjs) {
-    $c = Get-Content $mjs -Raw -Encoding UTF8
-    $c = $c -replace 'C:/Users/吴睿/\.workbuddy', $baseFwd
-    $c = $c -replace 'C:\\Users\\吴睿\\\.workbuddy', $base
-    $c = $c -replace 'C:/Users/[^/]+/\.workbuddy', $baseFwd
-    [System.IO.File]::WriteAllText($mjs, $c, (New-Object System.Text.UTF8Encoding $false))
-    Ok "适配 pojia-proxy.mjs"
+if ((Test-Path $mjs) -and $node) {
+    $chk2 = & $node --check $mjs 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "pojia-proxy.mjs 语法校验失败，已中止：`n$chk2" -ForegroundColor Red
+        exit 1
+    }
+    Ok "pojia-proxy.mjs 语法校验通过"
 }
 
 # ============ 6. 投放身份文件与脚本 ============
@@ -195,6 +211,28 @@ foreach ($f in @("pojiaguard.py","pojia-verify.py","identity-guard.py","pojia-pr
 if (Test-Path "$base\.pojia-golden") { Remove-Item "$base\.pojia-golden" -Recurse -Force }
 Copy-Item "$Root\.pojia-golden" $base -Recurse -Force
 Ok "身份文件 + 脚本 + golden 已投放"
+
+# ============ 6b. DSH 侧铺装（目标机有 DSH 才做） ============
+Step "6b/9" "铺装 DSH 预设（可选）"
+$dshRoot = Join-Path $user ".dsh"
+if (Test-Path "$dshRoot\.agent-presets") {
+    $presetN = 0
+    foreach ($pre in (Get-ChildItem "$Root" -Directory -Filter "coldcoffee-*" -ErrorAction SilentlyContinue)) {
+        $dst = Join-Path "$dshRoot\.agent-presets" $pre.Name
+        if (Test-Path $dst) {
+            $bak = "$dst.bak-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+            Copy-Item $dst $bak -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        Copy-Item $pre.FullName $dst -Recurse -Force
+        $presetN++
+    }
+    if (Test-Path "$Root\prompt-inject.md") {
+        Copy-Item "$Root\prompt-inject.md" "$dshRoot\prompt-inject.md" -Force
+    }
+    Ok "DSH 预设已更新: $presetN 个预设 + prompt-inject.md"
+} else {
+    Warn "未检测到 ~/.dsh，跳过 DSH 预设铺装"
+}
 
 # ============ 7. 覆盖模板 ============
 Step "7/9" "覆盖提示词模板"
